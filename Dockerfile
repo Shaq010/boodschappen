@@ -40,10 +40,12 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     DATABASE_FILE=/data/boodschappen.db
 
-# Het databasebestand hoort buiten de image, in het Railway-volume. De app
-# maakt de map zelf aan (db/client.ts), maar het volume moet er al zijn
-# voordat het bestand erin komt.
-VOLUME ["/data"]
+# Het databasebestand hoort buiten de image, in het Railway-volume. Dat volume
+# maak je aan in de Railway-interface (Service → Volumes, mount /data) — de
+# Dockerfile kan hier geen volume declareren: Railway wijst die regel af.
+# Zonder volume is SQLite weg na elke deploy. De app maakt de map zelf aan
+# (db/client.ts); /data hieronder bestaat alvast zodat appuser erin kan
+# schrijven zolang het Railway-volume nog niet is aangekoppeld.
 
 WORKDIR /app
 
