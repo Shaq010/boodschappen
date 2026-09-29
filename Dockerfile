@@ -19,6 +19,8 @@ WORKDIR /app
 # Eerst de vergrendelde afhankelijkheden; alleen de package.json-bestanden,
 # zodat de imagecache pas ongeldig wordt bij een wijziging aan de lockfile.
 COPY package.json package-lock.json ./
+# De gedeelde compiler-instellingen; de workspace-configs breiden dit bestand uit.
+COPY tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json
