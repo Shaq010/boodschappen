@@ -67,13 +67,12 @@ RUN npm ci --omit=dev
 COPY --from=build /app/packages/core/dist ./packages/core/dist
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 
-# Niet als root draaien. De bestanden hieronder zijn leesbaar voor iedereen,
-# en het datavolume is eigendom van de gebruiker zodat SQLite erin kan
-# schrijven.
+# We starten als root, maar alleen om de rechten van /data te herstellen (zie
+# docker-entrypoint.sh); het script droppt daarna naar appuser. Zonder die
+# tussenstap kan SQLite het databasebestand in een Railway-volume niet openen.
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
-USER appuser
+    && chown -R appuser:appuser /app
 
 EXPOSE 4000
 
@@ -82,4 +81,10 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
+# Het opstartscript herstelt eerst de rechten van het volume, daarna gaat het
+# proces verder als appuser.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "apps/api/dist/server.js"]
