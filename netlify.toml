@@ -1,0 +1,31 @@
+# Netlify bouwt de webinterface; de API draait elders (Railway), want SQLite
+# kan niet in de stateless Netlify-functies wonen.
+
+[build]
+  # Eerst de gedeelde domeinlogica compileren (@boodschappen/core), daarna de
+  # webapp. Typecheck zit al in de web-build.
+  command = "npm run build:core && npm run build -w @boodschappen/web"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# De webapp vindt de API via VITE_API_URL, als omgevingsvariabele op Netlify
+# gezet op het publieke Railway-domein, bijvoorbeeld
+# https://boodschappen-api.up.railway.app. Zonder dat blijft de dev-instelling
+# '' over, en dan zoekt de app bij zichzelf — dat werkt alleen lokaal.
+# Voorbeeld:
+#   netlify env set VITE_API_URL https://boodschappen-api.up.railway.app
+
+# De webapp is een PWA: de manifest- en iconpaden moeten rechtstreeks
+# leverbaar zijn zonder omleiding.
+[[redirects]]
+  from = "/manifest.webmanifest"
+  to = "/manifest.webmanifest"
+  status = 200
+
+# SPA-routing: elke route die geen bestand is gaat naar index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

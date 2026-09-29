@@ -1,0 +1,31 @@
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.DS_Store
+coverage/
+
+# Uitvoer van de browser-tests
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Gecompileerde vite/vitest-config naast de bron. Vite leest .js vóór .ts, dus
+# een achtergebleven bestand wint van je aanpassing in de .ts.
+vite.config.js
+vite.config.js.map
+vite.config.d.ts
+vite.config.d.ts.map
+vitest.config.js
+vitest.config.js.map
+vitest.config.d.ts
+vitest.config.d.ts.map

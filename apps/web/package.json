@@ -1,0 +1,34 @@
+{
+  "name": "@boodschappen/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobiele webinterface (React + Vite + Tailwind)",
+  "scripts": {
+    "dev": "node scripts/clean-config-artifacts.mjs && vite",
+    "build": "npm run typecheck && node scripts/clean-config-artifacts.mjs && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty",
+    "test": "node scripts/clean-config-artifacts.mjs && vitest run",
+    "test:watch": "node scripts/clean-config-artifacts.mjs && vitest"
+  },
+  "dependencies": {
+    "@boodschappen/core": "*",
+    "lucide-react": "^0.469.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.5"
+  }
+}

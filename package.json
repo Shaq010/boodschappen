@@ -1,0 +1,42 @@
+{
+  "name": "boodschappen-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Slimme boodschappen-, aanbiedingen-, prijsvergelijkings- en weekmenu-app voor Nederland",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @boodschappen/core && npm run build -w @boodschappen/api && npm run build -w @boodschappen/web",
+    "build:core": "npm run build -w @boodschappen/core",
+    "typecheck": "npm run typecheck -w @boodschappen/core && npm run typecheck -w @boodschappen/api && npm run typecheck -w @boodschappen/web",
+    "test": "npm run test -w @boodschappen/core && npm run test -w @boodschappen/api && npm run test -w @boodschappen/web",
+    "test:core": "npm run test -w @boodschappen/core",
+    "test:api": "npm run test -w @boodschappen/api",
+    "db:migrate": "npm run db:migrate -w @boodschappen/api",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @boodschappen/api",
+    "dev:web": "npm run dev -w @boodschappen/web",
+    "start": "npm run start -w @boodschappen/api",
+    "clean": "rm -rf node_modules packages/*/node_modules apps/*/node_modules packages/*/dist apps/*/dist apps/*/coverage test-results playwright-report",
+    "test:web": "npm run test -w @boodschappen/web",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "vite": "^6.4.3"
+  }
+}
