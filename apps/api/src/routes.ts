@@ -12,6 +12,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import { STORE_IDS, storeIdSchema } from '@boodschappen/core';
 import type { App } from './app.js';
 import { storeNameFor } from './adapters/types.js';
@@ -113,11 +114,21 @@ function registerApiRoutes(app: App) {
       })
       .parse(request.query ?? {});
 
-    const rows = app.db.select().from(app.db._.fullSchema.offers).limit(query.limit).all();
-    const filtered = query.storeId ? rows.filter((row) => row.storeId === query.storeId) : rows;
+    // Filter op winkel in de query zelf. Eerst de limiet pakken en daarna in
+    // het geheugen filteren gaf de eerste N rijen van de database terug — bij
+    // vier winkels waren dat er allemaal van één winkel, waardoor de andere
+    // winkels leeg leken.
+    const rows = query.storeId
+      ? app.db
+          .select()
+          .from(app.db._.fullSchema.offers)
+          .where(eq(app.db._.fullSchema.offers.storeId, query.storeId))
+          .limit(query.limit)
+          .all()
+      : app.db.select().from(app.db._.fullSchema.offers).limit(query.limit).all();
 
     return {
-      offers: filtered.map((row) => ({
+      offers: rows.map((row) => ({
         id: row.id,
         storeId: row.storeId,
         storeName: row.storeName,
@@ -136,8 +147,8 @@ function registerApiRoutes(app: App) {
         // Zonder bron weten we niets; toon dat expliciet.
         sourceConfigured: app.registry.get(row.storeId as (typeof STORE_IDS)[number]).isConfigured(),
       })),
-      count: filtered.length,
-      hasLivePricing: filtered.length > 0,
+      count: rows.length,
+      hasLivePricing: rows.length > 0,
     };
   });
 

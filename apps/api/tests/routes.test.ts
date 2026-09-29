@@ -163,6 +163,41 @@ describe('winkels en aanbiedingen', () => {
     expect(body.hasLivePricing).toBe(false);
   });
 
+  it('laat aanbiedingen van elke winkel zien, ook als andere winkels er meer hebben', async () => {
+    // Terugkerende fout: eerst de limiet (100) in de database pakken en daarna
+    // in het geheugen op winkel filteren gaf de eerste 100 rijen terug. Lidl
+    // heeft hier 150 aanbiedingen, Dirk 2 — zo vult Lidl de hele limiet en
+    // zou Dirk leeg lijken.
+    const veelAanbiedingen = (store: string, aantal: number) =>
+      Array.from({ length: aantal }, (_, i) => ({
+        id: `${store}-${i}`,
+        title: `${store} product ${i}`,
+        offerPrice: 1.0 + i / 100,
+        regularPrice: 2.5,
+        kind: 'price_drop',
+      }));
+
+    const { server, app } = await startApp({
+      env: { ...LIDL, SOURCE_DIRK_BASE_URL: 'https://bron.example/dirk', SOURCE_DIRK_API_KEY: 'x' },
+      routes: {
+        'lidl/offers': { offers: veelAanbiedingen('lidl', 150) },
+        'dirk/offers': { offers: veelAanbiedingen('dirk', 2) },
+        'lidl/prices': { prices: [] },
+        'dirk/prices': { prices: [] },
+      },
+    });
+
+    await server.inject({ method: 'POST', url: '/api/sources/sync', payload: {} });
+    await app.sync.waitForBackgroundSync();
+
+    const dirk = (await server.inject({ method: 'GET', url: '/api/offers?storeId=dirk' })).json();
+    expect(dirk.count, 'Dirk heeft 2 aanbiedingen, ondanks 150 van Lidl ervoor').toBe(2);
+    expect(dirk.offers.every((o: { storeId: string }) => o.storeId === 'dirk')).toBe(true);
+
+    const lidl = (await server.inject({ method: 'GET', url: '/api/offers?storeId=lidl' })).json();
+    expect(lidl.count, 'Lidl toont de limiet van 100').toBe(100);
+  });
+
   it('laat aanbiedingen uit een gekoppelde bron zien', async () => {
     const { server, app } = await startApp({
       env: LIDL,
