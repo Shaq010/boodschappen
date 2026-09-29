@@ -10,13 +10,10 @@ import { syncAndWait } from './sync.js';
  */
 
 const ROUTES = [
-  { path: '/', name: 'dashboard' },
+  { path: '/', name: 'boodschappen' },
   { path: '/lijst', name: 'lijst' },
   { path: '/menu', name: 'menu' },
   { path: '/aanbiedingen', name: 'aanbiedingen' },
-  { path: '/prijzen', name: 'prijzen' },
-  { path: '/voorraad', name: 'voorraad' },
-  { path: '/instellingen', name: 'instellingen' },
 ];
 
 /** Console-fouten en React-waarschuwingen opvangen per test. */
@@ -141,15 +138,14 @@ test.describe('navigatie', () => {
     // Op desktop staat de zijbalk er al; dat hoeft dus niets te doen.
   }
 
-  test('alle zeven schermen zijn bereikbaar vanuit de navigatie', async ({ page }) => {
+  test('de drie schermen staan in de navigatie', async ({ page }) => {
     await page.goto('/', { waitUntil: 'networkidle' });
     await openNavigation(page);
 
-    // Zeven links: dashboard, lijst, weekmenu, aanbiedingen, prijzen,
-    // voorraad en instellingen.
-    await expect(page.locator(hoofdmenu)).toHaveCount(7);
+    // Drie links, en niet meer: boodschappen, weekmenu en aanbiedingen.
+    await expect(page.locator(hoofdmenu)).toHaveCount(3);
 
-    for (const label of ['Lijst', 'Weekmenu', 'Aanbiedingen', 'Prijzen', 'Voorraad', 'Instellingen']) {
+    for (const label of ['Boodschappen', 'Weekmenu', 'Aanbiedingen']) {
       await expect(page.getByRole('link', { name: label }).first()).toBeVisible();
     }
   });
@@ -158,7 +154,7 @@ test.describe('navigatie', () => {
     await page.goto('/', { waitUntil: 'networkidle' });
     await openNavigation(page);
 
-    const link = page.getByRole('link', { name: 'Instellingen' }).first();
+    const link = page.getByRole('link', { name: 'Weekmenu' }).first();
     await expect(link).toBeVisible();
 
     const box = await link.boundingBox();
@@ -183,8 +179,9 @@ test.describe('navigatie', () => {
     await expect(menuKnop).toHaveAttribute('aria-expanded', 'false');
   });
 
-  test('een onbekend adres stuurt terug naar het dashboard', async ({ page }) => {
+  test('een onbekend adres stuurt terug naar de boodschappenlijst', async ({ page }) => {
     await page.goto('/dit-bestandt-niet', { waitUntil: 'networkidle' });
     await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByLabel('Wat heb je nodig?')).toBeVisible();
   });
 });

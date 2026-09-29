@@ -271,6 +271,37 @@ export class SyncService {
   }
 
   /**
+   * Houdt de prijzen vanzelf bij: één keer na het opstarten en daarna elke
+   * `intervalMs`.
+   *
+   * Waarom: de app hoeft geen knop meer te tonen. Prijzen veranderen per dag,
+   * en een server die urenlang draait zou anders een dag oude prijzen tonen.
+   * Met deze timer hoeft niemand eraan te denken.
+   *
+   * Geeft een stopfunctie terug, zodat tests en het afsluiten van de server de
+   * timer weer uitzetten.
+   */
+  startBackgroundScheduler(intervalMs = 6 * 60 * 60 * 1000): () => void {
+    const run = (): void => {
+      // Geen netwerk aan? Dan is er niets te halen; de bronstatus zegt dan al
+      // waarom het niet werkt.
+      if (!this.deps.config.sync.allowNetwork) return;
+      // Loopt er al een run? Dan slaan we deze ronde over; die loopt immers
+      // al de verse gegevens binnen.
+      this.startInBackground();
+    };
+
+    // Even wachten na het opstarten, zodat de server eerst bereikbaar is.
+    const first = setTimeout(run, 10_000);
+    const timer = setInterval(run, intervalMs);
+
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }
+
+  /**
    * Zet een winkel op `syncing`, zodat de interface ziet dat er gewerkt wordt.
    *
    * Gebruikt door de achtergrondsync: het ophalen duurt minuten en de

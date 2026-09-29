@@ -1,16 +1,16 @@
 /**
  * Boodschappenlijst: de kern van de app.
  *
- * Bevat:
- *  - de lijst met afvinken, per regel de beste prijs en eventuele voorwaarden;
- *  - de bulkparser met een preview die je eerst moet nakijken;
- *  - de winkelsamenstelling: alles bij één winkel, de goedkoopste combinatie
- *    en de oplossing met zo min mogelijk winkels.
+ * Zo simpel mogelijk: één veld waarin je typt wat je nodig hebt — "melk",
+ * of in één keer "melk, cola, blikjes" — en Enter. De app zet het er meteen
+ * bij. Er is geen analyseerscherm en geen bevestigingsdialoog; wat de app
+ * zeker weet koppelt het aan een product, en de rest komt als gewone regel in
+ * de lijst. Een eventuele koppeling bieden we achteraf aan, zonder te blokkeren.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ListPlus, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
-import { api_, ApiError, type ItemDetail, type ParsePreviewItem, type StorePlan } from '../lib/api.js';
+import { Check, Link2, ListPlus, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
+import { api_, ApiError, type ItemDetail, type StorePlan } from '../lib/api.js';
 import { useActiveList, useLoadable, useSources } from '../lib/hooks.js';
 import { usePageTitle } from '../components/shell.js';
 import { Button, Card, CardTitle, EmptyState, Notice, Spinner, StoreChip, StatusPill } from '../components/ui.js';
@@ -20,7 +20,6 @@ export function ShoppingListPage() {
   usePageTitle('Boodschappenlijst');
   const { listId, lists, createList, creating, setListId, reloadLists } = useActiveList();
   const sources = useSources();
-  const [bulkOpen, setBulkOpen] = useState(false);
 
   const detail = useLoadable(() => (listId ? api_.list(listId) : Promise.resolve(null)), [listId]);
   const [optimization, setOptimization] = useState<Awaited<ReturnType<typeof api_.optimize>> | null>(null);
@@ -102,42 +101,45 @@ export function ShoppingListPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">{detail.data?.list.name ?? 'Boodschappenlijst'}</h1>
-          <p className="mt-1 text-slate-600">
-            {open.length} nog te gaan
-            {done.length > 0 ? ` · ${done.length} afgevinkt` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setBulkOpen((value) => !value)}>
-            <Sparkles aria-hidden="true" className="h-4 w-4" />
-            Bulk invoeren
-          </Button>
-          <Button
-            onClick={async () => {
-              const id = await createList('Nieuwe lijst');
-              if (id) setListId(id);
-            }}
-            disabled={creating}
-          >
-            Nieuwe lijst
-          </Button>
-        </div>
+      <header>
+        <h1 className="text-2xl font-semibold text-slate-900">{detail.data?.list.name ?? 'Boodschappen'}</h1>
+        <p className="mt-1 text-slate-600">
+          {open.length} nog te gaan
+          {done.length > 0 ? ` · ${done.length} afgevinkt` : ''}
+        </p>
       </header>
 
       {detail.error ? <Notice kind="error" title="Lijst laden mislukt">{detail.error}</Notice> : null}
       {detail.loading ? <Spinner label="Lijst laden" /> : null}
 
-      {bulkOpen ? <BulkImport listId={listId} onDone={() => { setBulkOpen(false); detail.reload(); reloadLists(); }} /> : null}
+      <QuickAdd
+        listId={listId}
+        onAdded={() => {
+          detail.reload();
+          reloadLists();
+        }}
+      />
+
+      <ListTools
+        onNewList={async () => {
+          const id = await createList('Nieuwe lijst');
+          if (id) setListId(id);
+        }}
+        creating={creating}
+        lists={lists}
+        onPick={setListId}
+        onReload={() => {
+          reloadLists();
+          detail.reload();
+        }}
+      />
 
       {items.length === 0 && !detail.loading ? (
         <Card>
           <EmptyState title="Deze lijst is leeg">
             <p>
-              Gebruik <span className="font-medium">Bulk invoeren</span> en plak bijvoorbeeld
-              <span className="mx-1 font-medium">2 melk, 1,5 l cola zero, 500 g pasta</span>.
+              Typ hierboven wat je nodig hebt, bijvoorbeeld{' '}
+              <span className="font-medium">melk, cola, blikjes</span>.
             </p>
           </EmptyState>
         </Card>
@@ -368,51 +370,27 @@ function storeIdToName(storeId: string): string {
 }
 
 /** Bulk-invoer met preview: niets wordt opgeslagen vóór je bevestigt. */
-function BulkImport({ listId, onDone }: { listId: string; onDone: () => void }) {
+function QuickAdd({ listId, onAdded }: { listId: string; onAdded: () => void }) {
   const [text, setText] = useState('');
-  const [preview, setPreview] = useState<ParsePreviewItem[] | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  // Koppelvoorstellen die je één keer kunt aannemen; na toevoegen gezet.
+  const [offers, setOffers] = useState<
+    Array<{ itemId: string; name: string; candidates: Array<{ productId: string; name: string }> }>
+  >([]);
 
-  const pantry = useLoadable(() => api_.pantry(), []);
-
-  const included = useMemo(
-    () => (preview ?? []).filter((_, index) => !excluded.has(index)),
-    [preview, excluded],
-  );
-
-  async function runPreview() {
+  async function submit() {
+    const value = text.trim();
+    if (!value || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await api_.parse(text);
-      setPreview(result.items);
+      const result = await api_.quickAdd(listId, value);
+      setText('');
       setMessage(result.message);
-      setExcluded(new Set());
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.userMessage : 'Analyse mislukt.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function commit() {
-    setBusy(true);
-    setError(null);
-    try {
-      await api_.importToList(
-        listId,
-        included.map((item) => ({
-          name: item.name,
-          amount: item.quantity.amount,
-          unit: item.quantity.unit,
-          productId: item.suggestedProductId,
-          inPantry: item.inPantry,
-        })),
-      );
-      onDone();
+      setOffers(result.suggestions);
+      onAdded();
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.userMessage : 'Toevoegen mislukt.');
     } finally {
@@ -420,43 +398,45 @@ function BulkImport({ listId, onDone }: { listId: string; onDone: () => void }) 
     }
   }
 
+  async function link(itemId: string, productId: string) {
+    try {
+      await api_.updateItem(itemId, { productId });
+      setOffers((current) => current.filter((offer) => offer.itemId !== itemId));
+      onAdded();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.userMessage : 'Koppelen mislukt.');
+    }
+  }
+
   return (
     <Card>
-      <CardTitle
-        action={
-          <button type="button" onClick={onDone} aria-label="Sluiten" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
-            <X aria-hidden="true" className="h-4 w-4" />
-          </button>
-        }
-      >
-        Bulk invoeren
-      </CardTitle>
-
-      <p className="mb-2 text-sm text-slate-600">
-        Plak je lijstje. Commas, puntkomma&apos;s en regeleinden splitsen producten; een komma tussen twee
-        cijfers is een komma in de hoeveelheid, dus <span className="font-medium">1,5 l</span> blijft 1,5 liter.
-      </p>
-
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        rows={5}
-        placeholder={'2 melk\n1,5 l cola zero\n3 x pakken yoghurt van 500 g\n500 g pasta'}
-        className="w-full rounded-lg border border-slate-300 p-3 font-mono text-sm focus:border-brand-500"
-        aria-label="Tekst met boodschappen"
-      />
-
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button onClick={runPreview} disabled={busy || text.trim().length === 0}>
-          <Sparkles aria-hidden="true" className="h-4 w-4" />
-          Analyseer
+      <label htmlFor="snel-toevoegen" className="block text-sm font-medium text-slate-700">
+        Wat heb je nodig?
+      </label>
+      <div className="mt-1.5 flex gap-2">
+        <input
+          id="snel-toevoegen"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+          placeholder="melk, cola, blikjes"
+          autoComplete="off"
+          enterKeyHint="done"
+          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none"
+        />
+        <Button onClick={() => void submit()} disabled={busy || !text.trim()}>
+          <ListPlus aria-hidden="true" className="h-4 w-4" />
+          Toevoegen
         </Button>
-        {preview ? (
-          <Button variant="secondary" onClick={() => { setPreview(null); setMessage(null); setExcluded(new Set()); }}>
-            Opnieuw
-          </Button>
-        ) : null}
       </div>
+      <p className="mt-1.5 text-xs text-slate-500">
+        Typ één product of meerdere met komma&apos;s. Enter voegt ze meteen toe.
+      </p>
 
       {error ? (
         <div className="mt-3">
@@ -465,80 +445,71 @@ function BulkImport({ listId, onDone }: { listId: string; onDone: () => void }) 
           </Notice>
         </div>
       ) : null}
-      {message ? <p className="mt-3 text-sm text-slate-700">{message}</p> : null}
+      {message ? <p className="mt-2 text-sm text-slate-700">{message}</p> : null}
 
-      {preview ? (
-        <div className="mt-4">
-          <p className="mb-2 text-sm text-slate-700">
-            {included.length} van {preview.length} regel(s) worden toegevoegd. Haal een regel weg met het
-            kruisje.
-          </p>
-
-          <ul className="divide-y divide-slate-100">
-            {preview.map((item, index) => {
-              const skipped = excluded.has(index);
-              return (
-                <li key={`${item.name}-${index}`} className={`py-2 ${skipped ? 'opacity-50' : ''}`}>
-                  <div className="flex items-start gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExcluded((current) => {
-                          const next = new Set(current);
-                          if (next.has(index)) next.delete(index);
-                          else next.add(index);
-                          return next;
-                        })
-                      }
-                      aria-label={skipped ? `${item.name} toevoegen` : `${item.name} overslaan`}
-                      className="mt-0.5 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-                    >
-                      {skipped ? <ListPlus aria-hidden="true" className="h-4 w-4" /> : <X aria-hidden="true" className="h-4 w-4" />}
-                    </button>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-900">
-                        {item.name}{' '}
-                        <span className="font-normal text-slate-500">
-                          {item.quantity.amount} {item.quantity.unit}
-                        </span>
-                      </p>
-
-                      {item.needsConfirmation ? (
-                        <p className="text-xs text-amber-800">
-                          Even nakijken: dit is nog niet met zekerheid aan een product gekoppeld.
-                          {item.candidates.length > 0 ? ` Mogelijk: ${listSentence(item.candidates.map((c) => c.name))}.` : ''}
-                        </p>
-                      ) : item.suggestedProductName ? (
-                        <p className="text-xs text-slate-500">Gekoppeld aan {item.suggestedProductName}</p>
-                      ) : null}
-
-                      {item.inPantry ? (
-                        <StatusPill
-                          status="ok"
-                          label={`In voorraad (${item.pantryAmount ?? '?'} ${item.quantity.unit})`}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          {pantry.data && pantry.data.items.length > 0 ? (
-            <p className="mt-2 text-xs text-slate-500">
-              {pantry.data.items.length} product(en) staan in je voorraadkast; die hoef je niet opnieuw te kopen.
-            </p>
-          ) : null}
-
-          <div className="mt-3">
-            <Button onClick={commit} disabled={busy || included.length === 0} full>
-              {included.length} product(en) toevoegen
-            </Button>
-          </div>
-        </div>
+      {offers.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {offers.map((offer) => (
+            <li key={offer.itemId} className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <span className="font-medium">{offer.name}</span> is toegevoegd. Wil je het koppelen aan{'\u00a0'}
+              {offer.candidates[0]?.name}?
+              <button
+                type="button"
+                onClick={() => void link(offer.itemId, offer.candidates[0]!.productId)}
+                className="ml-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-brand-700 hover:bg-white"
+              >
+                <Link2 aria-hidden="true" className="h-3.5 w-3.5" />
+                Ja, koppelen
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </Card>
   );
 }
+
+/** Lijst kiezen of een nieuwe aanmaken; staat bewust onder het invulveld. */
+function ListTools({
+  onNewList,
+  creating,
+  lists,
+  onPick,
+  onReload,
+}: {
+  onNewList: () => Promise<void>;
+  creating: boolean;
+  lists: Array<{ id: string; name: string; itemCount: number }>;
+  onPick: (id: string) => void;
+  onReload: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {lists.length > 1 ? (
+        <select
+          aria-label="Kies je lijst"
+          defaultValue=""
+          onChange={(event) => {
+            if (event.target.value) onPick(event.target.value);
+          }}
+          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-700"
+        >
+          <option value="">Andere lijst…</option>
+          {lists.map((list) => (
+            <option key={list.id} value={list.id}>
+              {list.name} ({list.itemCount})
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <Button variant="secondary" size="sm" onClick={() => void onNewList()} disabled={creating}>
+        <ListPlus aria-hidden="true" className="h-4 w-4" />
+        Nieuwe lijst
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onReload}>
+        Vernieuwen
+      </Button>
+    </div>
+  );
+}
+

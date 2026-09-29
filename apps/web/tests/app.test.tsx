@@ -49,7 +49,7 @@ const NO_SOURCES = {
 describe('opstarten', () => {
   it('laat zien dat de server bereikbaar is', async () => {
     renderApp();
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Goed/g })).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Wat heb je nodig?')).toBeTruthy());
   });
 
   it('legt uit wat te doen als de server uit staat', async () => {
@@ -65,53 +65,6 @@ describe('opstarten', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByText(/niet bereiken/i)).toBeTruthy();
-  });
-});
-
-describe('dashboard', () => {
-  it('toont de vier winkels en zegt eerlijk dat er geen bron is', async () => {
-    renderApp({ sources: NO_SOURCES });
-
-    await waitFor(() => expect(screen.getByText('Databronnen')).toBeTruthy());
-    expect(screen.getByText('Lidl')).toBeTruthy();
-    expect(screen.getByText('Niet gekoppeld')).toBeTruthy();
-    expect(screen.getByText(/geen officiële bron gekoppeld/i)).toBeTruthy();
-  });
-
-  it('vraagt om een lijst als er nog geen is', async () => {
-    renderApp({ sources: NO_SOURCES, lists: [] });
-    await waitFor(() => expect(screen.getAllByText(/Nog geen lijst/i).length).toBeGreaterThan(0));
-  });
-
-  it('noemt een uitgezet netwerk als stand van zaken, niet als fout', async () => {
-    renderApp({
-      sources: {
-        sources: [
-          {
-            storeId: 'lidl', storeName: 'Lidl', status: 'network_disabled',
-            message: 'Uitgaande verzoeken staan uit (ALLOW_NETWORK=false).',
-            offerCount: 0, priceCount: 0, lastSuccessAt: null, lastAttemptAt: null,
-            lastError: null, ageSeconds: null, documentationUrl: null,
-            requiredEnvVars: ['SOURCE_LIDL_BASE_URL'], requiredConfiguration: [],
-          },
-        ],
-        configuredCount: 1,
-        totalStores: 4,
-        hasLivePricing: false,
-      },
-    });
-
-    await waitFor(() => expect(screen.getByText('Netwerk staat uit')).toBeTruthy());
-    expect(screen.getByText(/netwerk staat uit, dus er worden geen prijzen opgehaald/i)).toBeTruthy();
-  });
-
-  it('telt openstaande producten', async () => {
-    renderApp({
-      sources: NO_SOURCES,
-      items: [makeItem({ id: 'a', name: 'Melk', checked: false }), makeItem({ id: 'b', name: 'Brot', checked: true })],
-    });
-
-    await waitFor(() => expect(screen.getByText(/1 van 2 producten nog te gaan/)).toBeTruthy());
   });
 });
 
@@ -208,89 +161,121 @@ describe('boodschappenlijst', () => {
   });
 });
 
-describe('bulk invoeren', () => {
-  it('laat eerst een preview zien en pas na bevestigen opslaan', async () => {
+describe('snel toevoegen', () => {
+  it('voegt één product meteen toe, zonder preview', async () => {
     const { server, user } = renderApp(
       {
         sources: NO_SOURCES,
-        parse: {
-          items: [
-            { name: 'Melk', normalizedName: 'melk', quantity: { dimension: 'count', amount: 2, unit: 'st' }, suggestedProductId: 'p1', suggestedProductName: 'Melk', confidence: 1, needsConfirmation: false, candidates: [], inPantry: false, pantryAmount: null },
-            { name: 'Bier', normalizedName: 'bier', quantity: { dimension: 'count', amount: 6, unit: 'st' }, suggestedProductId: null, suggestedProductName: null, confidence: 0.4, needsConfirmation: true, candidates: [{ productId: 'p9', name: 'Pils', confidence: 0.4 }], inPantry: false, pantryAmount: null },
-          ],
-          message: '2 regels gevonden. Controleer ze.',
-          raw: { ignored: [] },
+        quickAdd: {
+          added: 1,
+          items: [makeItem({ id: 'item-9', name: 'Melk' })],
+          suggestions: [],
+          message: 'Melk toegevoegd.',
         },
       },
       '/lijst',
     );
 
-    await user.click(await screen.findByRole('button', { name: /Bulk invoeren/ }));
+    await user.type(await screen.findByLabelText('Wat heb je nodig?'), 'melk');
+    await user.keyboard('{Enter}');
 
-    const textarea = await screen.findByLabelText('Tekst met boodschappen');
-    await user.type(textarea, '2 melk, 6 bier');
-    await user.click(screen.getByRole('button', { name: /Analyseer/ }));
-
-    await waitFor(() => expect(screen.getByText(/2 regels gevonden/)).toBeTruthy());
-    // Pas na bevestigen wordt er iets bewaard.
-    expect(server.calls).not.toContain('/lists/lijst-1/import');
-
-    await user.click(screen.getByRole('button', { name: /2 product\(en\) toevoegen/ }));
-    await waitFor(() => expect(server.calls).toContain('/lists/lijst-1/import'));
+    await waitFor(() => expect(server.calls).toContain('/lists/lijst-1/quick-add'));
+    expect(server.lastBody('/lists/lijst-1/quick-add')).toEqual({ text: 'melk' });
+    // Geen tussenstap: er wordt nooit om bevestiging gevraagd.
+    expect(server.calls).not.toContain('/parse');
   });
 
-  it('laat een regel weg als je die weghaalt', async () => {
+  it('voegt meerdere producten uit één tekst toe', async () => {
     const { server, user } = renderApp(
       {
         sources: NO_SOURCES,
-        parse: {
+        quickAdd: {
+          added: 3,
           items: [
-            { name: 'Melk', normalizedName: 'melk', quantity: { dimension: 'count', amount: 2, unit: 'st' }, suggestedProductId: 'p1', suggestedProductName: 'Melk', confidence: 1, needsConfirmation: false, candidates: [], inPantry: false, pantryAmount: null },
-            { name: 'Bier', normalizedName: 'bier', quantity: { dimension: 'count', amount: 6, unit: 'st' }, suggestedProductId: null, suggestedProductName: null, confidence: 0.4, needsConfirmation: true, candidates: [], inPantry: false, pantryAmount: null },
+            makeItem({ id: 'item-1', name: 'Melk' }),
+            makeItem({ id: 'item-2', name: 'Cola' }),
+            makeItem({ id: 'item-3', name: 'Blikjes' }),
           ],
-          message: '2 regels gevonden.',
-          raw: { ignored: [] },
+          suggestions: [],
+          message: '3 producten toegevoegd.',
         },
       },
       '/lijst',
     );
 
-    await user.click(await screen.findByRole('button', { name: /Bulk invoeren/ }));
-    await user.type(await screen.findByLabelText('Tekst met boodschappen'), '2 melk, 6 bier');
-    await user.click(screen.getByRole('button', { name: /Analyseer/ }));
+    await user.type(await screen.findByLabelText('Wat heb je nodig?'), 'melk, cola, blikjes');
+    await user.keyboard('{Enter}');
 
-    await waitFor(() => expect(screen.getByText(/2 van 2 regel/)).toBeTruthy());
-    await user.click(screen.getByRole('button', { name: 'Melk overslaan' }));
-    expect(screen.getByText(/1 van 2 regel/)).toBeTruthy();
-
-    await user.click(screen.getByRole('button', { name: /1 product\(en\) toevoegen/ }));
     await waitFor(() => {
-      const body = server.lastBody('/lists/lijst-1/import') as { items: Array<{ name: string }> };
-      expect(body.items.map((item) => item.name)).toEqual(['Bier']);
+      const body = server.lastBody('/lists/lijst-1/quick-add') as { text: string };
+      expect(body.text).toBe('melk, cola, blikjes');
     });
+    await waitFor(() => expect(screen.getByText('3 producten toegevoegd.')).toBeTruthy());
   });
 
-  it('markeert wat al in de voorraadkast ligt', async () => {
+  it('leegt het veld weer leeg, zodat je meteen door kunt typen', async () => {
     const { user } = renderApp(
       {
         sources: NO_SOURCES,
-        pantry: [{ id: 'x', name: 'Melk', normalizedName: 'melk', dimension: 'count', amount: 2, unit: 'st' }],
-        parse: {
-          items: [
-            { name: 'Melk', normalizedName: 'melk', quantity: { dimension: 'count', amount: 2, unit: 'st' }, suggestedProductId: 'p1', suggestedProductName: 'Melk', confidence: 1, needsConfirmation: false, candidates: [], inPantry: true, pantryAmount: 2 },
+        quickAdd: { added: 1, items: [makeItem()], suggestions: [], message: 'Melk toegevoegd.' },
+      },
+      '/lijst',
+    );
+
+    const field = (await screen.findByLabelText('Wat heb je nodig?')) as HTMLInputElement;
+    await user.type(field, 'melk');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(field.value).toBe(''));
+  });
+
+  it('biedt een koppeling aan zonder het toevoegen tegen te houden', async () => {
+    const { server, user } = renderApp(
+      {
+        sources: NO_SOURCES,
+        quickAdd: {
+          added: 1,
+          items: [makeItem({ id: 'item-7', name: 'Melk', productId: null })],
+          suggestions: [
+            { itemId: 'item-7', name: 'Melk', candidates: [{ productId: 'p1', name: 'Melk Halfvol 1L', confidence: 0.8 }] },
           ],
-          message: '1 regel.',
-          raw: { ignored: [] },
+          message: 'Melk toegevoegd.',
         },
       },
       '/lijst',
     );
 
-    await user.click(await screen.findByRole('button', { name: /Bulk invoeren/ }));
-    await user.type(await screen.findByLabelText('Tekst met boodschappen'), '2 melk');
-    await user.click(screen.getByRole('button', { name: /Analyseer/ }));
+    await user.type(await screen.findByLabelText('Wat heb je nodig?'), 'melk');
+    await user.keyboard('{Enter}');
 
-    await waitFor(() => expect(screen.getByText(/In voorraad \(2 st\)/)).toBeTruthy());
+    const knop = await screen.findByRole('button', { name: /Ja, koppelen/ });
+    expect(screen.getByText(/Melk toegevoegd/)).toBeTruthy();
+    await user.click(knop);
+
+    await waitFor(() => expect(server.calls).toContain('/items/item-7'));
+    expect(server.lastBody('/items/item-7')).toEqual({ productId: 'p1' });
+  });
+
+  it('verklapt een fout van de server', async () => {
+    const server = createFakeServer({ sources: NO_SOURCES });
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/quick-add')) {
+        return new Response(JSON.stringify({ error: 'Ongeldige aanvraag' }), { status: 400 });
+      }
+      return server.fetch(input);
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/lijst']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await user.type(await screen.findByLabelText('Wat heb je nodig?'), 'melk');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(screen.getByText(/Dat lukte niet/)).toBeTruthy());
   });
 });
 
@@ -351,54 +336,6 @@ describe('aanbiedingen', () => {
   });
 });
 
-describe('prijsvergelijking', () => {
-  it('toont een lege tabel met streepjes zonder prijzen', async () => {
-    renderApp({ sources: NO_SOURCES, items: [makeItem()] }, '/prijzen');
-
-    // Wachten tot de regels er echt staan: de lijst komt asynchroon binnen.
-    await waitFor(() => expect(screen.getByText('Melk')).toBeTruthy());
-    // Streepje in plaats van een bedrag: er is geen prijs, dus toon niets.
-    const row = screen.getByText('Melk').closest('tr');
-    expect(row).toBeTruthy();
-    expect(within(row as HTMLElement).getAllByText('—').length).toBe(4);
-  });
-
-  it('markeert de goedkoopste winkel', async () => {
-    renderApp(
-      {
-        sources: { ...NO_SOURCES, hasLivePricing: true },
-        items: [
-          makeItem({
-            quotes: [
-              makeQuote({ basketCost: 1.29, unitPrice: 0.65 }),
-              makeQuoteFor('dirk', 'Dirk', { basketCost: 0.99, unitPrice: 0.5 }),
-            ],
-            best: makeQuoteFor('dirk', 'Dirk', { basketCost: 0.99 }),
-          }),
-        ],
-      },
-      '/prijzen',
-    );
-
-    await waitFor(() => expect(screen.getByText('goedkoopst')).toBeTruthy());
-    expect(screen.getAllByText(/€\s0[,.]99/).length).toBeGreaterThan(0);
-  });
-
-  it('stuurt de gekozen winkels mee', async () => {
-    const { server, user } = renderApp({ sources: NO_SOURCES, items: [makeItem()] }, '/prijzen');
-
-    const berekenen = screen.getByRole('button', { name: /Bereken beste winkelmix/ });
-    // De knop wordt pas actief als de lijst binnen is.
-    await waitFor(() => expect(berekenen.hasAttribute('disabled')).toBe(false));
-
-    await user.click(screen.getByRole('checkbox', { name: 'Dirk' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Kruidvat' }));
-    await user.click(berekenen);
-
-    await waitFor(() => expect(server.calls.some((call) => call.includes('stores=lidl,albert_heijn'))).toBe(true));
-  });
-});
-
 describe('weekmenu', () => {
   it('toont de dagen van de week', async () => {
     renderApp({ sources: NO_SOURCES, menu: emptyMenu() }, '/menu');
@@ -446,119 +383,31 @@ describe('weekmenu', () => {
   });
 });
 
-describe('voorraad', () => {
-  it('voegt een product toe aan de voorraadkast', async () => {
-    const { server, user } = renderApp({ sources: NO_SOURCES, pantry: [] }, '/voorraad');
-
-    await waitFor(() => expect(screen.getByText('In voorraad')).toBeTruthy());
-    await user.type(screen.getByLabelText('Product'), 'melk');
-    await user.clear(screen.getByLabelText('Aantal'));
-    await user.type(screen.getByLabelText('Aantal'), '1,5');
-    await user.clear(screen.getByLabelText('Eenheid'));
-    await user.type(screen.getByLabelText('Eenheid'), 'l');
-    await user.click(screen.getByRole('button', { name: 'Toevoegen' }));
-
-    await waitFor(() => expect(server.calls).toContain('/pantry'));
-    // Komma-decimaal moet als 1,5 doorgaan, niet als 15.
-    expect(server.lastBody('/pantry')).toEqual({ name: 'melk', amount: 1.5, unit: 'l' });
-  });
-
-  it('haalt een product uit de voorraadkast', async () => {
-    const { server, user } = renderApp(
-      { sources: NO_SOURCES, pantry: [{ id: 'p1', name: 'Melk', normalizedName: 'melk', dimension: 'count', amount: 2, unit: 'st' }] },
-      '/voorraad',
-    );
-
-    await waitFor(() => expect(screen.getByText('Melk')).toBeTruthy());
-    await user.click(screen.getByRole('button', { name: 'Melk uit voorraad halen' }));
-
-    await waitFor(() => expect(server.calls).toContain('/pantry/p1'));
-  });
-});
-
-describe('instellingen', () => {
-  it('laat zien welke variabelen nodig zijn, zonder de sleutel zelf', async () => {
-    renderApp({ sources: NO_SOURCES }, '/instellingen');
-
-    await waitFor(() => expect(screen.getByText('Databronnen per winkel')).toBeTruthy());
-    expect(screen.getByText('SOURCE_LIDL_BASE_URL')).toBeTruthy();
-    expect(screen.queryByText(/TOPGEHEIM/)).toBeNull();
-  });
-
-  it('legt uit dat het netwerk uit staat, zonder het als fout te tonen', async () => {
-    renderApp(
-      {
-        sources: {
-          sources: [
-            {
-              storeId: 'lidl', storeName: 'Lidl', status: 'network_disabled',
-              message: 'Uitgaande verzoeken staan uit (ALLOW_NETWORK=false).',
-              offerCount: 0, priceCount: 0, lastSuccessAt: null, lastAttemptAt: null,
-              lastError: null, ageSeconds: null, documentationUrl: null,
-              requiredEnvVars: ['SOURCE_LIDL_BASE_URL'], requiredConfiguration: [],
-            },
-          ],
-          configuredCount: 1,
-          totalStores: 4,
-          hasLivePricing: false,
-        },
-      },
-      '/instellingen',
-    );
-
-    await waitFor(() => expect(screen.getByText('Netwerk staat uit')).toBeTruthy());
-    expect(screen.getByText(/Dit is geen fout/)).toBeTruthy();
-    expect(screen.getByText('ALLOW_NETWORK=true')).toBeTruthy();
-  });
-
-  it('laat een product bevestigen', async () => {
-    const { server, user } = renderApp(
-      {
-        sources: NO_SOURCES,
-        products: { products: [{ id: 'p1', name: 'Melk', category: 'zuivel', verified: false, source: 'onbekend' }], unverified: 1 },
-      },
-      '/instellingen',
-    );
-
-    await waitFor(() => expect(screen.getByText('Melk')).toBeTruthy());
-    await user.click(screen.getByRole('button', { name: /Bevestigen/ }));
-
-    await waitFor(() => expect(server.calls).toContain('/products/p1/confirm'));
-  });
-
-  it('voegt een extra naam toe aan een product', async () => {
-    const { server, user } = renderApp(
-      {
-        sources: NO_SOURCES,
-        products: { products: [{ id: 'p1', name: 'Melk', category: 'zuivel', verified: false, source: 'onbekend' }], unverified: 1 },
-      },
-      '/instellingen',
-    );
-
-    await waitFor(() => expect(screen.getByText('Melk')).toBeTruthy());
-    await user.click(screen.getByRole('button', { name: /Naam toevoegen/ }));
-    await user.type(screen.getByLabelText('Extra naam'), 'die halve melk');
-    await user.click(screen.getByRole('button', { name: 'Opslaan' }));
-
-    await waitFor(() => expect(server.calls).toContain('/products/p1/alias'));
-    expect(server.lastBody('/products/p1/alias')).toEqual({ alias: 'die halve melk' });
-  });
-});
-
 describe('navigatie', () => {
-  it('komt op elke pagina via de navigatie', async () => {
-    const { user } = renderApp({ sources: NO_SOURCES });
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Goed/g })).toBeTruthy());
+  it('heeft alleen de drie schermen die je nodig hebt', async () => {
+    renderApp({ sources: NO_SOURCES });
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Boodschappen/ })).toBeTruthy());
 
     const menu = screen.getByRole('navigation', { name: 'Hoofdmenu' });
+    const labels = within(menu).getAllByRole('link').map((link) => link.textContent);
 
-    await user.click(within(menu).getByRole('link', { name: 'Aanbiedingen' }));
-    expect(screen.getByRole('heading', { name: 'Aanbiedingen' })).toBeTruthy();
+    expect(labels).toEqual(['Boodschappen', 'Weekmenu', 'Aanbiedingen']);
+  });
 
-    await user.click(within(menu).getByRole('link', { name: 'Voorraad' }));
-    expect(screen.getByRole('heading', { name: 'Voorraad' })).toBeTruthy();
+  it('opent de boodschappenlijst op het startscherm', async () => {
+    const { user } = renderApp({ sources: NO_SOURCES, items: [makeItem()] });
 
-    await user.click(within(menu).getByRole('link', { name: 'Instellingen' }));
-    expect(screen.getByRole('heading', { name: 'Instellingen' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText('Wat heb je nodig?')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Melk')).toBeTruthy());
+
+    const menu = screen.getByRole('navigation', { name: 'Hoofdmenu' });
+    await user.click(within(menu).getByRole('link', { name: 'Weekmenu' }));
+    await user.click(within(menu).getByRole('link', { name: 'Boodschappen' }));
+    expect(screen.getByLabelText('Wat heb je nodig?')).toBeTruthy();
+  });
+
+  it('stuurt een oude of onbekende link door naar de lijst', async () => {
+    renderApp({ sources: NO_SOURCES, items: [makeItem()] }, '/prijzen');
+    await waitFor(() => expect(screen.getByLabelText('Wat heb je nodig?')).toBeTruthy());
   });
 });

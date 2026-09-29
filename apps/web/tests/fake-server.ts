@@ -17,6 +17,7 @@ export interface FakeServerOptions {
   pantry?: unknown;
   products?: unknown;
   parse?: unknown;
+  quickAdd?: unknown;
   today?: unknown;
 }
 
@@ -96,6 +97,16 @@ export function createFakeServer(options: FakeServerOptions = {}): FakeServer {
     }
     if (path === '/parse') {
       return json(options.parse ?? { items: [], message: 'Niets gevonden.', raw: { ignored: [] } });
+    }
+    if (/\/lists\/[^/]+\/quick-add$/.test(path)) {
+      return json(
+        options.quickAdd ?? {
+          added: 0,
+          items: [],
+          suggestions: [],
+          message: 'Niets toegevoegd.',
+        },
+      );
     }
     return json({});
   }) as unknown as typeof fetch;

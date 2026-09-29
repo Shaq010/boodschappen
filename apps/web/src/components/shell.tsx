@@ -1,6 +1,11 @@
 /**
  * Navigatie.
  *
+ * Drie tabs, en niet meer: de lijst, het weekmenu en de aanbiedingen. Alles
+ * wat hiervoor los daar stond (dashboard, prijzen, voorraad, instellingen en
+ * de databronnen) is opgeschoond, want het maakte de app onnodig ingewikkeld.
+ * Prijzen worden op de achtergrond ververst; daar hoeft geen knop voor.
+ *
  * Mobiel: een vaste balk onderaan, want de duim bereikt de onderkant van het
  * scherm. Vanaf `md` (tablet en groter) wordt het een zijbalk. Zo hoeft de
  * gebruiker nooit te scrollen om ergens anders heen te gaan.
@@ -8,16 +13,12 @@
 
 import { NavLink } from 'react-router-dom';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ListChecks, CalendarDays, PiggyBank, Scale, Package, Settings, Home } from 'lucide-react';
+import { ListChecks, CalendarDays, PiggyBank } from 'lucide-react';
 
 const LINKS = [
-  { to: '/', label: 'Dashboard', icon: Home, end: true },
-  { to: '/lijst', label: 'Lijst', icon: ListChecks },
+  { to: '/lijst', label: 'Boodschappen', icon: ListChecks },
   { to: '/menu', label: 'Weekmenu', icon: CalendarDays },
   { to: '/aanbiedingen', label: 'Aanbiedingen', icon: PiggyBank },
-  { to: '/prijzen', label: 'Prijzen', icon: Scale },
-  { to: '/voorraad', label: 'Voorraad', icon: Package },
-  { to: '/instellingen', label: 'Instellingen', icon: Settings },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -102,12 +103,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="Snelle navigatie"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        <ul className="grid grid-cols-4">
-          {LINKS.slice(0, 4).map((link) => (
+        <ul className="grid grid-cols-3">
+          {LINKS.map((link) => (
             <li key={link.to}>
               <NavLink
                 to={link.to}
-                end={'end' in link ? link.end : false}
                 className={({ isActive }) =>
                   `flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium ${
                     isActive ? 'text-brand-700' : 'text-slate-600'
@@ -129,19 +129,16 @@ function NavItem({
   to,
   label,
   icon: Icon,
-  end,
   onNavigate,
 }: {
   to: string;
   label: string;
-  icon: typeof Home;
-  end?: boolean;
+  icon: typeof ListChecks;
   onNavigate?: () => void;
 }) {
   return (
     <NavLink
       to={to}
-      end={end}
       onClick={onNavigate}
       className={({ isActive }) =>
         `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${

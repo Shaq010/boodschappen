@@ -239,6 +239,14 @@ export interface ParseResponse {
   raw: { ignored: string[] };
 }
 
+export interface QuickAddResponse {
+  added: number;
+  items: ItemDetail[];
+  /** Regels die niet automatisch gekoppeld konden worden, met voorstellen. */
+  suggestions: Array<{ itemId: string; name: string; candidates: Array<{ productId: string; name: string; confidence: number }> }>;
+  message: string;
+}
+
 export interface StorePlan {
   key: string;
   title: string;
@@ -341,10 +349,13 @@ export const api_ = {
   list: (id: string) => api.get<{ list: ListSummary; items: ItemDetail[] }>(`/lists/${id}`),
   addItem: (listId: string, body: { name: string; amount?: number; unit?: string; inPantry?: boolean }) =>
     api.post<{ item: ItemDetail }>(`/lists/${listId}/items`, body),
-  updateItem: (id: string, body: Partial<{ name: string; amount: number; unit: string; checked: boolean; inPantry: boolean; note: string | null }>) =>
+  updateItem: (id: string, body: Partial<{ name: string; amount: number; unit: string; checked: boolean; inPantry: boolean; note: string | null; productId: string | null }>) =>
     api.patch<{ item: ItemDetail }>(`/items/${id}`, body),
   deleteItem: (id: string) => api.delete<void>(`/items/${id}`),
   parse: (text: string) => api.post<ParseResponse>('/parse', { text }),
+  /** Losse tekst meteen in de lijst zetten, zonder preview of bevestiging. */
+  quickAdd: (listId: string, text: string) =>
+    api.post<QuickAddResponse>(`/lists/${listId}/quick-add`, { text }),
   importToList: (listId: string, items: Array<{ name: string; amount?: number; unit?: string; productId?: string | null; inPantry?: boolean }>) =>
     api.post<{ added: number }>(`/lists/${listId}/import`, { items }),
   optimize: (listId: string, stores?: StoreId[]) =>

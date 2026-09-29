@@ -240,6 +240,9 @@ function registerApiRoutes(app: App) {
         checked: z.boolean().optional(),
         inPantry: z.boolean().optional(),
         note: z.string().max(500).nullable().optional(),
+        // Een regel alsnog aan een product koppelen. `null` betekent expliciet
+        // losmaken; zonder dit veld blijft de huidige koppeling staan.
+        productId: z.string().min(1).nullable().optional(),
       })
       .parse(request.body ?? {});
 
@@ -301,6 +304,39 @@ function registerApiRoutes(app: App) {
     );
 
     return reply.status(201).send({ added: created.length, items: created });
+  });
+
+  /**
+   * Losse tekst meteen in de lijst zetten: "melk", of "melk, cola, blikjes".
+   *
+   * Bewust zonder preview-stap. De gebruiker wil gewoon zijn lijstje
+   * overtypen; zeker gekoppelde producten worden gekoppeld en de rest komt
+   * als gewone regel in de lijst. De route is idempotent per verzoek en
+   * hoeft niet lang te duren, dus een timeout is hier niet aan de orde.
+   */
+  api.post('/lists/:id/quick-add', async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params ?? {});
+    // `.trim()` zodat een app die per ongeluk alleen spaties meestuurt geen
+    // lege regels in de lijst zet.
+    const body = z.object({ text: z.string().trim().min(1).max(2000) }).safeParse(request.body ?? {});
+
+    if (!body.success) {
+      return reply.status(400).send({
+        error: 'Ongeldige aanvraag',
+        message: 'Typ wat je wilt toevoegen, bijvoorbeeld "melk, cola, blikjes".',
+      });
+    }
+
+    const result = app.shopping.addText(id, body.data.text, userId(app));
+    return reply.status(201).send({
+      added: result.items.length,
+      items: result.items,
+      suggestions: result.suggestions,
+      message:
+        result.items.length === 1
+          ? `${result.items[0]!.name} toegevoegd.`
+          : `${result.items.length} producten toegevoegd.`,
+    });
   });
 
   /** Optimale winkelsamenstelling voor een lijst. */

@@ -1,8 +1,10 @@
 /**
  * App-root: gedeelde staat, router en de gedeelde brondata.
  *
- * De brondata en de actieve lijst staan in context, zodat elk scherm dezelfde
- * lijst en dezelfde bronstatus ziet en niet telkens opnieuw hoeft te laden.
+ * Drie schermen: de boodschappenlijst (het startscherm), het weekmenu en de
+ * aanbiedingen. Oude routes worden doorgestuurd naar de lijst, zodat een
+ * opgeslagen bladwijzer of een link uit een bericht niet op een lege pagina
+ * uitkomt.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -11,13 +13,9 @@ import { AppShell } from './components/shell.js';
 import { Button, Notice } from './components/ui.js';
 import { api_, ApiError, type ListSummary } from './lib/api.js';
 import { ActiveListContext, SourcesContext, type ActiveListValue, type SourcesValue } from './lib/hooks.js';
-import { DashboardPage } from './pages/dashboard.js';
 import { ShoppingListPage } from './pages/shopping-list.js';
 import { MenuPage } from './pages/menu.js';
 import { OffersPage } from './pages/offers.js';
-import { PricesPage } from './pages/prices.js';
-import { PantryPage } from './pages/pantry.js';
-import { SettingsPage } from './pages/settings.js';
 
 const LIST_STORAGE_KEY = 'boodschappen:actieve-lijst';
 
@@ -38,13 +36,10 @@ export function AppRoutes() {
     <Providers>
       <AppShell>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/" element={<ShoppingListPage />} />
           <Route path="/lijst" element={<ShoppingListPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/aanbiedingen" element={<OffersPage />} />
-          <Route path="/prijzen" element={<PricesPage />} />
-          <Route path="/voorraad" element={<PantryPage />} />
-          <Route path="/instellingen" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

@@ -146,6 +146,94 @@ describe('statusroutes', () => {
   });
 });
 
+describe('automatische synchronisatie', () => {
+  it('haalt de prijzen op zonder dat er iemand op een knop drukt', async () => {
+    const { server, app } = await startApp({
+      env: LIDL,
+      routes: { 'bron.example': { offers: [] } },
+    });
+
+    // Dit is wat de server doet bij het opstarten; in de app hoeft er geen
+    // knop meer voor te staan.
+    const stop = app.sync.startBackgroundScheduler(60 * 60 * 1000);
+    cleanups.push(stop);
+
+    // De eerste ronde start bewust even later, zodat de server intussen
+    // bereikbaar kan zijn. We wachten daarom op het resultaat.
+    await app.sync.startInBackground();
+    await app.sync.waitForBackgroundSync();
+
+    const statussen = (await server.inject({ method: 'GET', url: '/api/sources' })).json().sources as Array<{
+      storeId: string;
+      status: string;
+    }>;
+    expect(statussen.find((bron) => bron.storeId === 'lidl')?.status).toBe('connected');
+  });
+
+  it('haalt de prijzen volgens schema opnieuw op', async () => {
+    let aanroepen = 0;
+    const { app } = await startApp({
+      env: LIDL,
+      routes: {
+        'bron.example': () => {
+          aanroepen += 1;
+          return { offers: [] };
+        },
+      },
+    });
+
+    // Een heel korte periode, zodat de test niet een uur hoeft te wachten.
+    const stop = app.sync.startBackgroundScheduler(20);
+    cleanups.push(stop);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    stop();
+
+    expect(aanroepen, 'de timer haalt de prijzen opnieuw op').toBeGreaterThan(1);
+  });
+
+  it('doet niets als netwerk aan staan uitgeschakeld is', async () => {
+    let aanroepen = 0;
+    const { app } = await startApp({
+      env: { ...LIDL, ALLOW_NETWORK: 'false' },
+      routes: {
+        'bron.example': () => {
+          aanroepen += 1;
+          return { offers: [] };
+        },
+      },
+    });
+
+    const stop = app.sync.startBackgroundScheduler(20);
+    cleanups.push(stop);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    stop();
+
+    // Zonder toestemming geen uitgaand verzoek: geen stiekem verkeer naar een
+    // bron die de gebruiker niet heeft ingesteld.
+    expect(aanroepen).toBe(0);
+  });
+
+  it('stopt met synchroniseren als de server wordt afgesloten', async () => {
+    let aanroepen = 0;
+    const { app } = await startApp({
+      env: LIDL,
+      routes: {
+        'bron.example': () => {
+          aanroepen += 1;
+          return { offers: [] };
+        },
+      },
+    });
+
+    const stop = app.sync.startBackgroundScheduler(20);
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(aanroepen).toBe(0);
+  });
+});
+
 describe('winkels en aanbiedingen', () => {
   it('toont de vier winkels met klantenkaart', async () => {
     const { server } = await startApp();
@@ -306,6 +394,130 @@ describe('parser', () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json().added).toBe(2);
+  });
+});
+
+describe('snel toevoegen', () => {
+  it('zet losse tekst meteen op de lijst, zonder bevestiging', async () => {
+    const { server } = await startApp();
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'melk' },
+    });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(201);
+    expect(body.added).toBe(1);
+    expect(body.items[0].name).toBe('melk');
+    expect(body.message).toBe('melk toegevoegd.');
+  });
+
+  it('voegt meerdere producten uit één tekst toe', async () => {
+    const { server } = await startApp();
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const body = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'melk, cola, blikjes' },
+    })).json();
+
+    expect(body.added).toBe(3);
+    expect(body.items.map((item: { name: string }) => item.name)).toEqual(['melk', 'cola', 'blikjes']);
+  });
+
+  it('houdt de hoeveelheden uit de tekst vast', async () => {
+    const { server } = await startApp();
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const body = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: '2 melk\n1,5 l cola' },
+    })).json();
+
+    expect(body.items[0].amount).toBe(2);
+    // Liters worden opgeslagen in milliliters, net als bij handmatig toevoegen.
+    expect(body.items[1].amount).toBe(1500);
+    expect(body.items[1].unit).toBe('ml');
+  });
+
+  it('laat een onzeker product gewoon los staan, in plaats van te koppelen', async () => {
+    const { server, app } = await startApp();
+    // Een product dat qua verpakking niet overeenkomt met "melk": koppelen zou
+    // de gebruiker een verkeerd product in de lijst geven.
+    app.sync.products.resolve({ name: 'Bounty Melk 5-pack', storeId: 'lidl', storeProductId: 'x1' });
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const body = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'melk' },
+    })).json();
+
+    expect(body.added).toBe(1);
+    expect(body.items[0].productId).toBeNull();
+    // Het product mag wel worden voorgesteld, maar de regel is gewoon toegevoegd.
+    expect(body.suggestions[0].candidates[0].name).toBe('Bounty Melk 5-pack');
+  });
+
+  it('koppelt wel als de productnaam exact klopt', async () => {
+    const { server, app } = await startApp();
+    const seeded = app.sync.products.resolve({ name: 'Melk', storeId: 'lidl', storeProductId: 'x2' });
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const body = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'melk' },
+    })).json();
+
+    expect(body.items[0].productId).toBe(seeded.productId);
+  });
+
+  it('weet een handmatig gekozen koppeling voor de volgende keer', async () => {
+    const { server, app } = await startApp();
+    const seeded = app.sync.products.resolve({ name: 'Melk Halfvol 1L', storeId: 'lidl', storeProductId: 'x3' });
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    // Eerst toegevoegd als losse regel...
+    const first = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'die halve melk' },
+    })).json();
+    expect(first.items[0].productId).toBeNull();
+
+    // ...daarna handmatig gekoppeld.
+    await server.inject({
+      method: 'PATCH',
+      url: `/api/items/${first.items[0].id}`,
+      payload: { productId: seeded.productId },
+    });
+
+    // De volgende keer wordt "die halve melk" dus vanzelf herkend.
+    const second = (await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: 'die halve melk' },
+    })).json();
+    expect(second.items[0].productId).toBe(seeded.productId);
+  });
+
+  it('weigert lege tekst', async () => {
+    const { server } = await startApp();
+    const listId = (await server.inject({ method: 'POST', url: '/api/lists', payload: {} })).json().list.id;
+
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/lists/${listId}/quick-add`,
+      payload: { text: '   ' },
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 });
 

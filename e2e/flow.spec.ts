@@ -13,57 +13,46 @@ import { syncAndWait } from './sync.js';
 test.describe.configure({ mode: 'serial' });
 
 test('van lege app naar een lijst met producten', async ({ page }) => {
-  // 1. Het dashboard komt op en zegt eerlijk dat er nog niets is.
+  // 1. De app komt op met het velk om in te typen; er is geen dashboard.
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect(page.locator('main h1')).toBeVisible();
+  const veld = page.getByLabel('Wat heb je nodig?');
+  await expect(veld).toBeVisible();
 
   // 2. Een lijst aanmaken.
-  await page.goto('/lijst', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /nieuwe lijst/i }).first().click();
-  await expect(page.locator('main h1')).toBeVisible();
+  await expect(veld).toBeVisible();
 
-  // 3. Bulk invoeren. De app parseert eerst en laat het resultaat zien.
-  await page.getByRole('button', { name: /bulk invoeren/i }).click();
-  const veld = page.getByLabel('Tekst met boodschappen');
+  // 3. Typen en Enter. Geen analyseerscherm, geen bevestigingsknop: de
+  //    producten staan meteen in de lijst.
   await veld.fill('2 melk, 1,5 l cola, 1 kg bananen');
-  await page.getByRole('button', { name: /^analyseer$/i }).click();
+  await veld.press('Enter');
 
-  // De preview verschijnt voordat er iets in de lijst staat.
-  await expect(page.getByText(/melk/i).first()).toBeVisible();
   await expect(page.getByText(/cola/i).first()).toBeVisible();
   await expect(page.getByText(/bananen/i).first()).toBeVisible();
 
-  // 4. De knop zegt precies hoeveel regels er binnenkomen.
-  const bevestig = page.getByRole('button', { name: /product\(en\) toevoegen/i });
-  await expect(bevestig).toHaveText(/3 product\(en\) toevoegen/);
-  await bevestig.click();
-
-  // Na bevestigen sluit het paneel en staan de producten in de lijst.
-  await expect(page.getByText(/cola/i).first()).toBeVisible();
-  await expect(page.getByLabel('Tekst met boodschappen')).toHaveCount(0);
+  // 4. Het veld is weer leeg, zodat je meteen door kunt typen.
+  await expect(veld).toHaveValue('');
 
   // 5. De komma hoort bij de eenheid: '1,5 l' mag niet als 15 liter binnenkomen.
-  // Eerst wachten tot de lijst echt geladen is; een expect op tekst die je
-  // meteen uitleest wacht niet en leest dan een halve pagina.
-  await expect(page.getByText(/cola/i).first()).toBeVisible();
-  await expect(page.getByText(/melk/i).first()).toBeVisible();
-  await expect(page.getByText(/Lijst laden/)).toHaveCount(0);
-
   const lijstTekst = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   expect(lijstTekst, 'de lijst toont de producten').toMatch(/melk/i);
   expect(lijstTekst, 'cola staat in de lijst').toMatch(/cola/i);
   expect(lijstTekst, '1,5 liter mag niet als 15 liter opslaan').not.toMatch(/\b15\s*l\b/);
+  expect(lijstTekst).not.toMatch(/Bevestigen|Analyseren|Bulk invoeren/);
 });
 
-test('een product dat nog niet gekoppeld is vraagt om bevestiging', async ({ page }) => {
-  await page.goto('/lijst', { waitUntil: 'networkidle' });
+test('één product per keer typen werkt ook', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const veld = page.getByLabel('Wat heb je nodig?');
 
-  // Staat er nog een openstaande bevestiging, dan moet die zichtbaar zijn en
-  // mag de app niet stilletjes gokken.
-  const bevestigKnop = page.getByRole('button', { name: /kies|koppelen|bevestig/i }).first();
-  if (await bevestigKnop.isVisible().catch(() => false)) {
-    await expect(bevestigKnop).toBeVisible();
-  }
+  await veld.fill('melk');
+  await veld.press('Enter');
+  await expect(page.getByText('melk toegevoegd.')).toBeVisible();
+
+  // Daarna meteen het volgende product, zonder de pagina te herladen.
+  await veld.fill('blikjes');
+  await veld.press('Enter');
+  await expect(page.getByText('blikjes toegevoegd.')).toBeVisible();
 });
 
 test('de aanbiedingen tonen prijzen uit de bron, met de kaartvoorwaarde erbij', async ({ page, request }) => {

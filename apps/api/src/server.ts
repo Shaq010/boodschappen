@@ -1,8 +1,9 @@
 /**
  * Start de API-server.
  *
- * Bij het opstarten: database openen en migreren, winkels klaarzetten en de
- * routes registreren. Er worden geen voorbeeldprijzen geladen.
+ * Bij het opstarten: database openen en migreren, winkels klaarzetten, de
+ * routes registreren en de prijzen op de achtergrond binnenhalen. Er worden
+ * geen voorbeeldprijzen geladen en er is geen knop nodig om te verversen.
  */
 
 import { config as loadDotenv } from 'dotenv';
@@ -16,8 +17,13 @@ loadDotenv();
 const app = createApp();
 const server = await buildServer(app);
 
+// Zet de prijzen vanzelf bij. De eerste ronde start pas kort na het opstarten,
+// zodat de server al bereikbaar is als iemand direct de app opent.
+const stopScheduler = app.sync.startBackgroundScheduler();
+
 const shutdown = async (signal: string): Promise<void> => {
   server.log.info(`${signal} ontvangen, server wordt afgesloten`);
+  stopScheduler();
   await server.close();
   app.close();
   process.exit(0);

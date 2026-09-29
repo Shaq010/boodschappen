@@ -254,6 +254,12 @@ export class ShoppingService {
       })
       .where(eq(shoppingItems.id, id))
       .run();
+    // Een handmatig gekozen koppeling onthouden we als synonieem, zodat de
+    // volgende keer dat "melk" vanzelf hetzelfde product wordt. Anders moet de
+    // gebruiker elke keer opnieuw kiezen.
+    if (patch.productId && patch.productId !== current.productId && this.products) {
+      this.products.addAlias(patch.productId, current.name);
+    }
     this.touch(current.listId);
     return this.item(id);
   }
@@ -275,6 +281,43 @@ export class ShoppingService {
   // -------------------------------------------------------------------------
   // Parser
   // -------------------------------------------------------------------------
+
+  /**
+   * Leest losse tekst en zet hem meteen in de lijst, zonder tussenstap.
+   *
+   * Dit is wat de app gebruikt als je "melk" of "melk, cola, blikjes" typt.
+   * De herkenning doet hetzelfde als altijd, maar je hoeft niets te bevestigen:
+   * wat zeker is wordt gekoppeld, wat onzeker is komt als gewone regel in de
+   * lijst. De voorgestelde producten komen terug zodat de app er later nog een
+   * koppeling kan aanbieden.
+   */
+  addText(listId: string, text: string, userId: string | null): { items: ItemRow[]; suggestions: Array<{ itemId: string; name: string; candidates: Array<{ productId: string; name: string; confidence: number }> }> } {
+    const { items: parsed } = this.preview(text, userId);
+    const created = this.commit(
+      listId,
+      parsed.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        // Alleen een zekere match wordt meegestuurd; anders blijft de regel
+        // een gewone lijstregel zonder product, precies zoals bij handmatig
+        // toevoegen.
+        productId: item.suggestedProductId,
+        inPantry: item.inPantry,
+      })),
+    );
+
+    const suggestions = parsed
+      .map((item, index) => ({
+        itemId: created[index]?.id,
+        name: item.name,
+        candidates: item.candidates,
+      }))
+      .filter((entry): entry is { itemId: string; name: string; candidates: Array<{ productId: string; name: string; confidence: number }> } =>
+        Boolean(entry.itemId) && entry.candidates.length > 0,
+      );
+
+    return { items: created, suggestions };
+  }
 
   /**
    * Leest vrije tekst uit, bijvoorbeeld:
